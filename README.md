@@ -6,7 +6,7 @@ Projet de clustering non supervisé réalisé avec R et Quarto.
 - `Analyse des votes de la présidentielle 2017.qmd` : code et rédaction
 - `Presidentielle2017_par_circonscription.csv`
 - `Presidentielle2017_par_departement.csv` : données électorales
-- `Analyse des votes.pdf` : rapport rendu
+- `Analyse des votes de la présidentielle 2017` : rapport rendu
 
 ## Dépendances
 Les paquets R utilisés :
