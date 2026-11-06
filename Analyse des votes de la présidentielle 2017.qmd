@@ -1,0 +1,746 @@
+---
+title: "ZHOU_Mengzhe.qmd"
+format:
+  pdf:
+    pdf-engine: xelatex
+editor: visual
+---
+
+# Introduction à la classification non-supervisée - Application à l'élection présidentielle 2017
+
+```{r}
+ library(tidyverse)
+ library(ggplot2)
+ library(dplyr)
+ library(fossil)
+```
+
+## Clustering Ascendant Hiérarchique (CAH)：
+
+### Classification des départements
+
+1.  
+
+```{r}
+data <- read.csv("Presidentielle2017_par_departement.csv")
+voting_col <- c("Abstentions", "Blancs","Arthaud", "Asselineau", 
+                "Cheminade", "DupontAignan", "Fillon", "Hamon", 
+                "Lasalle", "LePen", "Macron", "Melenchon", "Poutou")
+
+voting_data <- data[,voting_col]
+
+rownames(voting_data) <- data$Dpt
+
+
+# Calculer disdance de Matrice(avec euclidienne)
+dist_matrice <- dist(voting_data, method = "euclidean")
+
+# CAH：Ward
+hclust_res <- hclust(dist_matrice, method = "ward.D2")
+
+# arbre：
+plot(hclust_res , cex = 0.6, main = "CAH des départements français")
+
+cluster <- cutree (hclust_res , k = 3)
+
+cluster
+
+```
+
+Repondre:
+
+- Pour calculer la distance, utilisez la distance euclidienne.
+
+- Pour la réalisation d’un clustering hiérarchique, utilisez Word
+
+- En utilisant cutree(), vous pouvez voir la catégorie à laquelle appartient chaque province. J’ai divisé en 3 catégories.
+
+2.  
+
+Repondre：
+
+- Le dendrogramme a déjà été tracé dans 1.
+
+- La signification des valeurs sur l’axe vertical du dendrogramme : elles représentent la distance lors de la fusion de deux provinces. Plus la hauteur est faible, plus elles sont fusionnées tôt, donc plus elles sont similaires.
+
+- “Français établis hors de France” a été fusionné avec les autres provinces en dernier, ce qui indique qu’il présente des différences très importantes par rapport aux autres catégories.
+
+3.  
+
+```{r}
+# Identifier les valeurs aberrantes
+cluster_5 <- cutree(hclust_res, k = 5)
+table(cluster_5)
+
+# trouver les valeurs aberrantes：
+outlier_group <- which.min(table(cluster_5))
+outlier_departments <- names(cluster_5[cluster_5 == outlier_group])
+
+# eliminer les valeurs aberrantes：
+clean_data <- voting_data[cluster_5 != outlier_group,]
+
+# reclassifier
+dist_matrice_clean <- dist(clean_data, method = "euclidean")
+hclust_clean <- hclust(dist_matrice_clean, method = "ward.D2")
+cluster_clean <- cutree(hclust_clean, k = 2)
+
+table(cluster_clean)
+
+# plus petit group:
+small_group <- which.min(table(cluster_clean))
+small_group_department <- names(cluster_clean[cluster_clean == small_group])
+
+print(small_group_department)
+
+
+```
+
+Hypothèse : probablement lié à la population des départements.
+
+```{r}
+# Varifier:
+group_profiles <- aggregate(clean_data, 
+                           by = list(Cluster = cluster_clean), 
+                           FUN = mean)
+
+clean_data_with_cluster <- cbind(clean_data, Cluster = cluster_clean)
+group_analysis <- clean_data_with_cluster %>%
+  group_by(Cluster) %>%
+  summarise(across(everything(), mean))
+
+print(group_analysis)
+```
+
+Ne correspond pas au problème de distribution basé sur les votes par département.
+
+Le plus petit groupe contient 25 départements, correspondant principalement
+
+aux grandes villes et aux zones densément peuplées.
+
+Les résultats de validation montrent que tous les indicateurs de vote du deuxième groupe sont plus élevés que ceux du premier groupe,
+
+Cela ne correspond donc pas à l'objectif initial de classification par département.
+
+La raison pourrait être l'utilisation du nombre de votes bruts plutôt que des pourcentages pour calculer les distances.
+
+4.  
+
+```{r}
+# Méthode améliorée : utiliser les données en pourcentage
+percentage_data <- voting_data
+total_votes <- rowSums(percentage_data)
+percentage_data <- percentage_data / total_votes * 100
+rownames(percentage_data) <- data$Dpt
+
+# 2. départements de France métropolitaine
+metropolitan_codes <- c(1:95, "2A", "2B")
+metro_indices <- which(data$CodeDpt %in% metropolitan_codes)
+metro_data <- percentage_data[metro_indices, ]
+
+# 3. Refaire le clustering
+dist_metro <- dist(metro_data, method = "euclidean")
+hclust_metro <- hclust(dist_metro, method = "ward.D2")
+plot(hclust_metro, cex = 0.7, main = "Classification avec données en pourcentage")
+
+
+clusters_metro <- cutree(hclust_metro, k = 4)
+table(clusters_metro)
+
+
+metro_with_cluster <- cbind(metro_data, Cluster = clusters_metro)
+group_analysis <- metro_with_cluster %>%
+  group_by(Cluster) %>%
+  summarise(across(everything(), mean))
+
+print(group_analysis)
+```
+
+En utilisant les données en pourcentage, on peut éliminer l'influence de la taille de la population.
+
+À ce moment, les valeurs aberrantes ne sont plus définies par la taille démographique.
+
+5.  
+
+```{r}
+
+# Ward 
+hclust_ward <- hclust(dist_metro, method = "ward.D2")
+clusters_ward <- cutree(hclust_ward, k = 4)
+
+# Single 
+hclust_single <- hclust(dist_metro, method = "single")
+clusters_single <- cutree(hclust_single, k = 4)
+
+# Complete 
+hclust_complete <- hclust(dist_metro, method = "complete")
+clusters_complete <- cutree(hclust_complete, k = 4)
+
+
+table(clusters_ward)
+table(clusters_single)
+table(clusters_complete)
+```
+
+```{r}
+# Calculer Rand：
+ri_ward_single <- rand.index(clusters_ward, clusters_single)
+ri_ward_complete <- rand.index(clusters_ward, clusters_complete)
+ri_single_complete <- rand.index(clusters_single, clusters_complete)
+
+print(paste("Ward vs Single: ", round(ri_ward_single, 3)))
+print(paste("Ward vs Complete: ", round(ri_ward_complete, 3)))
+print(paste("Single vs Complete: ", round(ri_single_complete, 3)))
+
+```
+
+RI \> 0.8 indique généralement une similarité très forte
+
+RI = 0.6-0.8 indique une similarité modérée
+
+RI \< 0.6 indique une similarité faible
+
+La similarité entre ward.D2 et les deux autres méthodes est très faible.
+
+\madskip
+
+## Algorithme des k-moyennes
+
+7.  
+
+```{r}
+
+set.seed(123) 
+
+group1 <- data.frame(
+  x = rnorm(10, mean = 2 , sd = 0.5),
+  y = rnorm(10, mean = 2 , sd = 0.5)
+)
+
+group2 <- data.frame(
+  x = rnorm(10, mean = 8 , sd = 0.5),
+  y = rnorm(10, mean = 2 , sd = 0.5)
+)
+
+group3 <- data.frame(
+  x = rnorm(10, mean = 5 , sd = 0.5),
+  y = rnorm(10, mean = 9 , sd = 0.5)
+)
+
+all_points <- rbind(group1, group2, group3) 
+all_points$id <- 1:30 
+
+ggplot(all_points, aes(x = x , y = y)) +
+  geom_point(size = 3 , color = "blue") + 
+  theme_minimal()
+
+```
+
+```{r}
+# A. Sélection des centres initiaux
+set.seed(456)
+initial_centers <- all_points[sample(1:30,3),] 
+initial_centers$center_id <- 1:3
+
+
+# Tracer les centres initiaux :
+ggplot(all_points, aes(x = x, y = y)) +
+  geom_point(size = 3, color = "blue", alpha = 0.6) +
+  geom_point(data = initial_centers, aes(color = factor(center_id)), size = 5) +
+  labs(title = "A.Sélection des centres initiaux") +
+  scale_color_manual(values = c("red", "green", "purple")) +
+  theme_minimal()
+
+
+
+# B. Attribution
+# Calculer la distance de chaque point aux 3 centres :
+distance <- matrix(NA, nrow = 30 , ncol = 3)
+for (i in 1:30){
+  for (j in 1:3){
+    distance[i,j] <- sqrt((all_points$x[i] - initial_centers$x[j])^2 + 
+                          (all_points$y[i] - initial_centers$y[j])^2)
+  }
+}
+
+assignments <- apply(distance, 1, which.min) 
+all_points$cluster <- assignments
+
+# Tracer le résultat de l'attribution :
+ggplot(all_points, aes(x = x, y = y, color = factor(cluster))) +
+  geom_point(size = 3) +
+  geom_point(data = initial_centers, aes(color = factor(center_id)), size = 5, shape = 15) +
+  labs(title = "B.attribution") +
+  theme_minimal()
+
+# C. recalculer des centres:
+new_centers <- aggregate(cbind(x,y) ~ cluster , data = all_points, FUN = mean)
+new_centers$center_id <- 1:3
+
+# tracer la 1ere iteration:
+ggplot(all_points, aes(x = x, y = y, color = factor(cluster))) +
+  geom_point(size = 3, alpha = 0.6) +
+  geom_point(data = initial_centers, aes(color = factor(center_id)), 
+             size = 5, shape = 15, alpha = 0.5) +  
+  geom_point(data = new_centers, aes(color = factor(center_id)), 
+             size = 5, shape = 15) +  
+  labs(title = "C.recalculer des centres") +
+  theme_minimal()
+
+# D. iteration：
+
+# 2eme attribution
+distances2 <- matrix(NA, nrow = 30, ncol = 3)
+for (i in 1:30) {
+  for (j in 1:3) {
+    distances2[i, j] <- sqrt((all_points$x[i] - new_centers$x[j])^2 + 
+                             (all_points$y[i] - new_centers$y[j])^2)
+  }
+}
+
+assignments2 <- apply(distances2, 1, which.min)
+all_points$cluster2 <- assignments2
+
+# 2eme calculer des centres
+new_centers2 <- aggregate(cbind(x, y) ~ cluster2, data = all_points, FUN = mean)
+new_centers2$center_id <- 1:3
+
+# tracer 2eme resultat
+ggplot(all_points, aes(x = x, y = y, color = factor(cluster2))) +
+  geom_point(size = 3) +
+  geom_point(data = new_centers2, aes(color = factor(center_id)), size = 5, shape = 15) +
+  labs(title = "D.2eme iteration") +
+  theme_minimal()
+
+# 3eme:
+distances3 <- matrix(NA, nrow = 30, ncol = 3)
+for (i in 1:30) {
+  for (j in 1:3) {
+    distances3[i, j] <- sqrt((all_points$x[i] - new_centers2$x[j])^2 + 
+                             (all_points$y[i] - new_centers2$y[j])^2)
+  }
+}
+
+assignments3 <- apply(distances3, 1, which.min)
+all_points$cluster3 <- assignments3
+
+
+new_centers3 <- aggregate(cbind(x, y) ~ cluster3, data = all_points, FUN = mean)
+new_centers3$center_id <- 1:3
+
+
+ggplot(all_points, aes(x = x, y = y, color = factor(cluster3))) +
+  geom_point(size = 3) +
+  geom_point(data = new_centers3, aes(color = factor(center_id)), size = 5, shape = 15) +
+  labs(title = "D.3eme iteration") +
+  theme_minimal()
+
+```
+
+8.  
+
+Car chaque point est assigné au centre le plus proche
+
+Donc pour touts les points$X_i$: $d(X_i, C_{new(X_i)}) <= d(X_i, C_{old(X_i)})$
+
+Donc : $[d(X_i, C_{new(X_i)}]^2 <= [d(X_i, C_{old(X_i)})]^2$
+
+Donc : $WSS_{assigne} <= WSS_{old}$
+
+Car $\sum[d(X_i, C_{new}]^2 <= \sum[d(X_i, C_{old}]^2$ ,
+
+On a :$WSS_{newIteration} <= WSS_{assigne}$
+
+Donc $WSS_{newIteration} <= WSS_{assigne} <= WSS_{old}$
+
+Car WSS ≥ 0 et décroissant strictement,
+
+d’après le théorème de convergence monotone bornée,
+
+WSS converge nécessairement.
+
+```{r}
+# calculer fonction WSS:
+calculate_wss <- function(points, centers, assignments) {
+  wss <- 0
+  for(i in 1:nrow(points)) {
+    cluster_center <- centers[assignments[i], ]
+    distance_sq <- (points$x[i] - cluster_center$x)^2 + (points$y[i] - cluster_center$y)^2
+    wss <- wss + distance_sq
+  }
+  return(wss)
+}
+
+# enregistrer a chaque iteration WSS:
+wss_history <- numeric()
+
+# centres initiaux:
+initial_wss <- calculate_wss(all_points, initial_centers, assignments)
+wss_history <- c(wss_history, initial_wss)
+
+# 1ere iteration:
+wss_iter1 <- calculate_wss(all_points, new_centers, assignments)
+wss_history <- c(wss_history, wss_iter1)
+
+# 2eme
+wss_iter2 <- calculate_wss(all_points, new_centers2, assignments2)
+wss_history <- c(wss_history, wss_iter2)
+
+# 3eme
+wss_iter3 <- calculate_wss(all_points, new_centers3, assignments3)
+wss_history <- c(wss_history, wss_iter3)
+
+
+cat("changement de WSS:\n")
+for(i in 1:length(wss_history)) {
+  cat(sprintf("iteration%d: WSS = %.4f\n", i-1, wss_history[i]))
+}
+
+# varifier:
+is_decreasing <- all(diff(wss_history) <= 0)
+cat("WSS est decroissant ? :", is_decreasing, "\n")
+
+# 绘制WSS变化图
+plot(0:(length(wss_history)-1), wss_history, type = "b", 
+     xlab = "nombre d'iteration", ylab = "WSS", 
+     main = "changement de WSS",
+     col = "blue", pch = 16)
+grid()
+
+
+```
+
+9.  
+
+On pose : $G_k$: $X_1, X_2, \dots ,X_n \in \mathbf{R}^d$,
+
+On cherche le point $Y \in \mathbf{R}^d$ pour $f(Y) = \sum ||X_i - Y || ^ 2$,$i= 1,\dots, n$
+
+On a : $$ 
+f(Y) = \sum(X_i - Y)^T (X_i - Y)
+     = \sum((X_i)^T X_i - 2* (X_i)^T Y + Y^T Y )
+     = \sum((X_i)^T X_i - 2*(\sum X_i)^T)Y + nY^TY)$$ Calcule le gradient de Y:
+
+$\triangledown f(Y) = -2 \sum X_i + 2nY$
+
+$\triangledown f(Y) = 0$
+
+On a : \$Y\_{min} = (1/n)\sum X_i \$
+
+Car $f(Y)$ est convexe (la matrice Hessienne est définie positive).
+
+Ainsi, dans le cas d’individus dans ℝ𝑑 muni de la distance euclidienne, la remise à jour de l’étape 𝐶 correspond à prendre la moyenne des éléments du groupe.
+
+10. 
+
+```{r}
+# utiliser K-means et enregistrer WSS（les données en pourcentage de la France métropolitaine）
+k_values <- 2:15
+best_wss <- numeric(length(k_values))
+best_models <- list()
+
+set.seed(123) 
+
+cat("utiliser K-means et enregistrer WSS...\n")
+for (i in seq_along(k_values)) {
+  k <- k_values[i]
+  
+  kmeans_result <- kmeans(metro_data, 
+                         centers = k, 
+                         nstart = 25,  
+                         iter.max = 100)
+  
+  best_wss[i] <- kmeans_result$tot.withinss
+  best_models[[i]] <- kmeans_result
+  
+  cat("K =", k, "，WSS =", round(kmeans_result$tot.withinss, 2), "\n")
+}
+
+
+wss_results <- data.frame(
+  K = k_values,
+  WSS = best_wss
+)
+
+# Tracer la courbe du coude
+elbow_plot <- ggplot(wss_results, aes(x = K, y = WSS)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "blue", size = 3) +
+  labs(title = "Sélection du nombre optimal de clusters",
+       x = "K",
+       y = "WSS") +
+  scale_x_continuous(breaks = 2:15) +
+  theme_minimal()
+
+print(elbow_plot)
+
+# 选择最佳K值（基于肘部法则）
+# 计算WSS的变化率来帮助识别肘部
+wss_results$reduction <- c(NA, -diff(wss_results$WSS))
+wss_results$reduction_rate <- c(NA, wss_results$reduction[-1] / wss_results$WSS[-nrow(wss_results)] * 100)
+
+cat("\nchangement de WSS:\n")
+print(wss_results)
+
+# la valeur K 
+
+optimal_k <- 4  # basée sur la méthode du coude
+
+cat("\n valeur de K optimale :", optimal_k, "\n")
+
+best_kmeans_model <- best_models[[which(k_values == optimal_k)]]
+final_kmeans_clusters <- best_kmeans_model$cluster
+
+kmeans_table <- table(final_kmeans_clusters)
+cat("\n distribution de K-means:\n")
+print(kmeans_table)
+
+# comparer avec CAH
+hclust_clusters <- cutree(hclust_ward, k = optimal_k)
+
+# Rand Index
+ri <- rand.index(final_kmeans_clusters, hclust_clusters)
+
+# Adjusted Rand Index
+adj_ri <- adj.rand.index(final_kmeans_clusters, hclust_clusters)
+
+cat("Rand Index:", round(ri, 3), "\n")
+cat("Adjusted Rand Index:", round(adj_ri, 3), "\n")
+
+if(adj_ri > 0.8) {
+  cat("Les deux méthodes sont très cohérentes\n")
+} else if(adj_ri > 0.6) {
+  cat("Les deux méthodes sont modérément cohérentes\n")
+} else {
+  cat("Les deux méthodes présentent des différences importantes\n")
+}
+
+# comparation plus détaillée
+comparison_df <- data.frame(
+  Departement = rownames(metro_data),
+  KMeans_Cluster = final_kmeans_clusters,
+  Hierarchical_Cluster = hclust_clusters,
+  Agreement = final_kmeans_clusters == hclust_clusters
+)
+
+
+agreement_rate <- mean(comparison_df$Agreement)
+cat("Proportion de concordance des clusterings:", round(agreement_rate * 100, 1), "%\n")
+
+disagreements <- comparison_df[!comparison_df$Agreement, ]
+cat("Nombre de départements discordants:", nrow(disagreements), "\n")
+
+if(nrow(disagreements) > 0) {
+  cat("\nDépartements discordants:\n")
+  print(disagreements)
+}
+
+
+# K-means
+kmeans_profiles <- aggregate(metro_data, 
+                            by = list(Cluster = final_kmeans_clusters), 
+                            FUN = mean)
+
+# CAH
+hierarchical_profiles <- aggregate(metro_data, 
+                                  by = list(Cluster = hclust_clusters), 
+                                  FUN = mean)
+
+cat("\nCaractéristiques du clustering K-means(taux de vote moyen par candidat en %):\n")
+print(round(kmeans_profiles, 2))
+
+cat("\nCaractéristiques du clustering hiérarchique (taux de vote moyen par candidat en %) :\n")
+print(round(hierarchical_profiles, 2))
+
+
+
+pca_result <- prcomp(metro_data, scale. = TRUE)
+pca_df <- data.frame(
+  PC1 = pca_result$x[, 1],
+  PC2 = pca_result$x[, 2],
+  KMeans = as.factor(final_kmeans_clusters),
+  Hierarchical = as.factor(hclust_clusters),
+  Departement = rownames(metro_data)
+)
+
+# tracer le resultat de K-means
+plot_kmeans <- ggplot(pca_df, aes(x = PC1, y = PC2, color = KMeans)) +
+  geom_point(size = 3, alpha = 0.7) +
+  labs(title = paste("K-means (K =", optimal_k, ")"),
+       subtitle = paste("WSS =", round(best_wss[which(k_values == optimal_k)], 2))) +
+  theme_minimal()
+
+# tracer le resultat de CAH
+plot_hierarchical <- ggplot(pca_df, aes(x = PC1, y = PC2, color = Hierarchical)) +
+  geom_point(size = 3, alpha = 0.7) +
+  labs(title = paste("CAH (K =", optimal_k, ")")) +
+  theme_minimal()
+
+cat("\nla valeur K optimale :", optimal_k, "\n")
+cat("Cohérence entre K-means et clustering hiérarchique:", round(agreement_rate * 100, 1), "%\n")
+
+```
+
+### Classification hiérarchique des circonscriptions
+
+11. 
+
+```{r}
+circonscription_data <- read.csv("Presidentielle2017_par_circonscription.csv")
+
+circonscription_data$Circonscription <- paste(
+  circonscription_data$CodeDpt, 
+  circonscription_data$CodeCirco, 
+  sep = "-"
+)
+
+voting_cols_circ <- c("Abstentions", "Blancs", "Arthaud", "Asselineau", 
+                     "Cheminade", "DupontAignan", "Fillon", "Hamon", 
+                     "Lasalle", "LePen", "Macron", "Melenchon", "Poutou")
+
+voting_data_circ <- circonscription_data[, voting_cols_circ]
+rownames(voting_data_circ) <- circonscription_data$Circonscription
+
+total_votes_circ <- rowSums(voting_data_circ)
+percentage_data_circ <- voting_data_circ / total_votes_circ * 100
+
+metropolitan_dpts <- c(1:95, "2A", "2B")
+metro_circ_indices <- which(circonscription_data$CodeDpt %in% metropolitan_dpts)
+metro_data_circ <- percentage_data_circ[metro_circ_indices, ]
+
+# CAH:
+dist_circ <- dist(metro_data_circ, method = "euclidean")
+hclust_circ <- hclust(dist_circ, method = "ward.D2")
+# arbre：
+plot(hclust_circ, cex = 0.4, main = "CAH des circonscriptions francaises")
+
+# Couper le dendrogramme pour obtenir 4 clusters
+clusters_circ <- cutree(hclust_circ, k = 4)
+
+#  Analyser les circonscriptions de la region Alsace
+alsace_dpts <- c("67", "68")
+alsace_indices <- which(circonscription_data$CodeDpt[metro_circ_indices] %in% alsace_dpts)
+
+# Extraire les informations
+alsace_circ <- circonscription_data[metro_circ_indices, ][alsace_indices, ]
+alsace_circ$Cluster <- clusters_circ[alsace_indices]
+alsace_circ$Circonscription <- rownames(metro_data_circ)[alsace_indices]
+
+
+cat("Distribution des clusters des circonscriptions de la region Alsace :\n")
+print(table(alsace_circ$CodeDpt, alsace_circ$Cluster))
+
+
+cat("\nDetails de chaque circonscription alsacienne :\n")
+alsace_details <- alsace_circ[, c("CodeDpt", "CodeCirco", "Cluster")]
+print(alsace_details)
+
+# Analyser les caractéristiques de vote de chaque cluster
+circ_with_cluster <- cbind(metro_data_circ, Cluster = clusters_circ)
+cluster_profiles <- circ_with_cluster %>%
+  group_by(Cluster) %>%
+  summarise(across(everything(), mean))
+
+cat("\nCaracteristiques de vote moyennes par cluster (%):\n")
+print(round(cluster_profiles, 2))
+
+
+alsace_profiles <- circ_with_cluster[alsace_indices, ] %>%
+  group_by(Cluster) %>%
+  summarise(across(everything(), mean))
+
+cat("\nCaracteristiques moyennes des circonscriptions alsaciennes dans chaque cluster:\n")
+print(round(alsace_profiles, 2))
+
+# Visualiser:
+pca_circ <- prcomp(metro_data_circ, scale. = TRUE)
+pca_df_circ <- data.frame(
+  PC1 = pca_circ$x[, 1],
+  PC2 = pca_circ$x[, 2],
+  Cluster = as.factor(clusters_circ),
+  Departement = circonscription_data$CodeDpt[metro_circ_indices],
+  Circonscription = rownames(metro_data_circ)
+)
+
+
+pca_df_circ$Alsace <- pca_df_circ$Departement %in% alsace_dpts
+
+# tracer les resultats 
+ggplot(pca_df_circ, aes(x = PC1, y = PC2, color = Cluster)) +
+  geom_point(aes(shape = Alsace, size = Alsace), alpha = 0.6) +
+  scale_shape_manual(values = c(16, 17)) +
+  scale_size_manual(values = c(2, 4)) +
+  labs(title = "resultat de CAH",
+       subtitle = "Les points triangulaires représentent les circonscriptions alsaciennes",
+       x = paste("PC1 (", round(summary(pca_circ)$importance[2,1]*100, 1), "%)"),
+       y = paste("PC2 (", round(summary(pca_circ)$importance[2,2]*100, 1), "%)")) +
+  theme_minimal()
+
+# voir le taux de vote des candidats cles pour chaque cluster
+key_candidates <- c("LePen", "Macron", "Melenchon", "Fillon")
+
+cluster_analysis <- circ_with_cluster %>%
+  group_by(Cluster) %>%
+  summarise(
+    n_circonscriptions = n(),
+    LePen_avg = mean(LePen),
+    Macron_avg = mean(Macron),
+    Melenchon_avg = mean(Melenchon),
+    Fillon_avg = mean(Fillon),
+    Abstentions_avg = mean(Abstentions)
+  )
+
+cat("\nTaux de vote moyen des candidats clés par cluster (%):\n")
+print(round(cluster_analysis, 1))
+
+
+alsace_analysis <- alsace_circ %>%
+  group_by(Cluster) %>%
+  summarise(
+    n_circonscriptions = n(),
+    LePen_avg = mean(LePen),
+    Macron_avg = mean(Macron),
+    Melenchon_avg = mean(Melenchon),
+    Fillon_avg = mean(Fillon)
+  )
+
+cat("\nPerformance des circonscriptions alsaciennes dans chaque cluster:\n")
+print(round(alsace_analysis, 1))
+
+
+cat("\nInterprétation des résultats\n")
+cat("À travers l'analyse de classification hiérarchique des circonscriptions de France métropolitaine, nous pouvons observer：\n\n")
+
+
+for(i in 1:nrow(cluster_analysis)) {
+  cluster <- cluster_analysis$Cluster[i]
+  n_circ <- cluster_analysis$n_circonscriptions[i]
+  
+  cat(sprintf("Cluster %d (%d circonscriptions):\n", cluster, n_circ))
+  
+  # trouver le le plus élevé
+  candidates_avg <- c(
+    LePen = cluster_analysis$LePen_avg[i],
+    Macron = cluster_analysis$Macron_avg[i],
+    Melenchon = cluster_analysis$Melenchon_avg[i],
+    Fillon = cluster_analysis$Fillon_avg[i]
+  )
+  
+  top_candidate <- names(which.max(candidates_avg))
+  top_value <- max(candidates_avg)
+  
+  cat(sprintf("Caractéristique principale : %s a le taux de vote le plus élevé (%.1f%%), taux d'abstention %.1f%%\n", 
+              top_candidate, top_value, cluster_analysis$Abstentions_avg[i]))
+  
+  # Vérifier
+  alsace_in_cluster <- sum(alsace_circ$Cluster == cluster)
+  if(alsace_in_cluster > 0) {
+    cat(sprintf("Contient %d circonscriptions alsaciennes\n", alsace_in_cluster))
+  }
+  cat("\n")
+}
+
+```
+
+Analyse des circonscriptions de la région Alsace :
+
+Les circonscriptions du Bas-Rhin (67) et du Haut-Rhin (68) sont réparties dans différents clusters, ce qui indique l'existence de différences dans les modes de vote au sein de la région Alsace.
